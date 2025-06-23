@@ -109,35 +109,51 @@ export function TrafficHeatmap() {
     return travelData[selectedTime];
   };
 
-  const getColorIntensity = (duration: number) => {
+  const getColorIntensity = (duration: number, minDuration: number, maxDuration: number) => {
     // Convert seconds to minutes
     const minutes = duration / 60;
+    const minMinutes = minDuration / 60;
+    const maxMinutes = maxDuration / 60;
     
-    // Define color scale based on travel time
-    // Green (fast) to Red (slow): 0-20 min = green, 20-40 min = yellow, 40+ min = red
-    if (minutes <= 20) {
-      const intensity = minutes / 20; // 0 to 1
-      return { color: `rgb(${Math.floor(255 * intensity)}, 255, 0)`, intensity: 0.3 + intensity * 0.4 };
-    } else if (minutes <= 40) {
-      const intensity = (minutes - 20) / 20; // 0 to 1
-      return { color: `rgb(255, ${Math.floor(255 * (1 - intensity))}, 0)`, intensity: 0.7 + intensity * 0.3 };
+    // Normalize the duration to a 0-1 scale based on actual data range
+    const normalizedValue = maxMinutes > minMinutes ? 
+      (minutes - minMinutes) / (maxMinutes - minMinutes) : 0;
+    
+    // Create a smooth color gradient from green (fast) to red (slow)
+    const intensity = Math.max(0, Math.min(1, normalizedValue));
+    
+    // Green to Yellow to Red gradient
+    let red, green, blue;
+    if (intensity <= 0.5) {
+      // Green to Yellow (first half)
+      red = Math.floor(255 * intensity * 2); // 0 to 255
+      green = 255; // stay at 255
+      blue = 0;
     } else {
-      return { color: 'rgb(255, 0, 0)', intensity: 1.0 };
+      // Yellow to Red (second half)
+      red = 255; // stay at 255
+      green = Math.floor(255 * (1 - (intensity - 0.5) * 2)); // 255 to 0
+      blue = 0;
     }
+    
+    return { 
+      color: `rgb(${red}, ${green}, ${blue})`, 
+      intensity: 0.3 + intensity * 0.7 // Size range from 0.3 to 1.0
+    };
   };
 
   return (
     <div className="w-full max-w-7xl mx-auto p-6">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-center mb-4">
+      <div className="mb-2">
+        <h1 className="text-3xl font-bold text-center mb-2">
           San Francisco to Oakland Traffic Heatmap
         </h1>
-        <p className="text-center text-gray-600 mb-6">
+        <p className="text-center text-gray-600 mb-2">
           Travel times from various San Francisco locations to 2140 Mandela Pkwy, Oakland, CA
         </p>
         
         {/* Controls */}
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-2">
           <div className="flex gap-2">
             <button
               onClick={() => setSelectedTime("rush")}
@@ -174,34 +190,55 @@ export function TrafficHeatmap() {
           </button>
         </div>
 
-        {/* Legend */}
-        <div className="flex items-center justify-center gap-4 mb-4">
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-green-400 rounded"></div>
-            <span className="text-sm">Fast (&lt; 20 min)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-yellow-400 rounded"></div>
-            <span className="text-sm">Medium (20-40 min)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-red-400 rounded"></div>
-            <span className="text-sm">Slow (&gt; 40 min)</span>
-          </div>
-        </div>
+        {/* Dynamic Legend */}
+        {(() => {
+          const validData = getCurrentData().filter(d => d.status === 'OK' && d.duration > 0);
+          if (validData.length === 0) {
+            return (
+              <div className="flex items-center justify-center gap-4 mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-green-400 rounded"></div>
+                  <span className="text-sm">Fast</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-yellow-400 rounded"></div>
+                  <span className="text-sm">Medium</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-red-400 rounded"></div>
+                  <span className="text-sm">Slow</span>
+                </div>
+              </div>
+            );
+          }
 
-        {/* Debug info */}
-        {addresses && (
-          <div className="text-center text-sm text-gray-500 mb-4">
-            Total addresses: {addresses.length} | 
-            Loaded {selectedTime}: {getCurrentData().length} points |
-            Valid routes: {getCurrentData().filter(d => d.status === 'OK').length}
-          </div>
-        )}
+          const durations = validData.map(d => d.duration);
+          const minMinutes = Math.round(Math.min(...durations) / 60);
+          const maxMinutes = Math.round(Math.max(...durations) / 60);
+          const avgMinutes = Math.round(durations.reduce((sum, d) => sum + d, 0) / durations.length / 60);
+
+          return (
+            <div className="flex items-center justify-center gap-6 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-green-500 rounded"></div>
+                <span className="text-sm font-medium">Fast: {minMinutes} min</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-yellow-500 rounded"></div>
+                <span className="text-sm font-medium">Avg: {avgMinutes} min</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-red-500 rounded"></div>
+                <span className="text-sm font-medium">Slow: {maxMinutes} min</span>
+              </div>
+            </div>
+          );
+        })()}
+
       </div>
 
       {/* Map */}
-      <div className="h-96 w-full border rounded-lg overflow-hidden shadow-lg">
+      <div className="md:h-[700px] w-full border rounded-lg overflow-hidden shadow-lg">
         <TrafficMapDisplay
           data={getCurrentData()}
           destination={destination}
@@ -210,34 +247,6 @@ export function TrafficHeatmap() {
         />
       </div>
 
-      {/* Stats */}
-      {getCurrentData().filter(d => d.status === 'OK').length > 0 && (
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-white p-4 rounded-lg shadow border">
-            <h3 className="font-semibold text-gray-700">Valid Routes</h3>
-            <p className="text-2xl font-bold text-blue-600">
-              {getCurrentData().filter(d => d.status === 'OK').length}
-            </p>
-          </div>
-          <div className="bg-white p-4 rounded-lg shadow border">
-            <h3 className="font-semibold text-gray-700">Average Travel Time</h3>
-            <p className="text-2xl font-bold text-orange-600">
-              {Math.round(
-                getCurrentData()
-                  .filter(d => d.status === 'OK')
-                  .reduce((sum, point) => sum + point.duration, 0) /
-                getCurrentData().filter(d => d.status === 'OK').length / 60
-              )} min
-            </p>
-          </div>
-          <div className="bg-white p-4 rounded-lg shadow border">
-            <h3 className="font-semibold text-gray-700">Time Period</h3>
-            <p className="text-2xl font-bold text-purple-600">
-              {selectedTime === "rush" ? "5:00 PM" : "3:00 AM"}
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 } 

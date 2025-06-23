@@ -5,7 +5,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 // Fix for default markers in Leaflet
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
@@ -24,7 +24,7 @@ interface TravelTimeData {
 interface TrafficMapDisplayProps {
   data: TravelTimeData[];
   destination: { lat: number; lng: number };
-  getColorIntensity: (duration: number) => { color: string; intensity: number };
+  getColorIntensity: (duration: number, minDuration: number, maxDuration: number) => { color: string; intensity: number };
   selectedTime: "rush" | "offpeak";
 }
 
@@ -89,12 +89,40 @@ export default function TrafficMapDisplay({
     "Outer Sunset, San Francisco, CA": { lat: 37.7534, lng: -122.4984 },
     "Ocean Beach, San Francisco, CA": { lat: 37.7756, lng: -122.5144 },
     
-    // Pacific Heights and Marina
+    // Pacific Heights and Marina - Enhanced Coverage
     "Pacific Heights, San Francisco, CA": { lat: 37.7956, lng: -122.4339 },
     "Marina District, San Francisco, CA": { lat: 37.8021, lng: -122.4378 },
     "Cow Hollow, San Francisco, CA": { lat: 37.7990, lng: -122.4339 },
     "Russian Hill, San Francisco, CA": { lat: 37.8014, lng: -122.4189 },
     "Nob Hill, San Francisco, CA": { lat: 37.7918, lng: -122.4156 },
+    
+    // Additional North Beach points
+    "Washington Square Park, San Francisco, CA": { lat: 37.8006, lng: -122.4103 },
+    "Columbus Ave & Broadway, San Francisco, CA": { lat: 37.7983, lng: -122.4067 },
+    "Columbus Ave & Union St, San Francisco, CA": { lat: 37.8003, lng: -122.4089 },
+    "Lombard St & Hyde St, San Francisco, CA": { lat: 37.8021, lng: -122.4194 },
+    "Hyde St & Greenwich St, San Francisco, CA": { lat: 37.8008, lng: -122.4194 },
+    
+    // Additional Marina District points
+    "Chestnut St & Fillmore St, San Francisco, CA": { lat: 37.8003, lng: -122.4325 },
+    "Marina Blvd & Webster St, San Francisco, CA": { lat: 37.8056, lng: -122.4342 },
+    "Palace of Fine Arts, San Francisco, CA": { lat: 37.8023, lng: -122.4486 },
+    "Crissy Field, San Francisco, CA": { lat: 37.8058, lng: -122.4622 },
+    
+    // Additional Pacific Heights points
+    "Fillmore St & California St, San Francisco, CA": { lat: 37.7889, lng: -122.4331 },
+    "Divisadero St & California St, San Francisco, CA": { lat: 37.7889, lng: -122.4378 },
+    "Sacramento St & Presidio Ave, San Francisco, CA": { lat: 37.7889, lng: -122.4486 },
+    "Jackson St & Webster St, San Francisco, CA": { lat: 37.7931, lng: -122.4342 },
+    
+    // Additional Richmond District points
+    "Clement St & 6th Ave, San Francisco, CA": { lat: 37.7828, lng: -122.4631 },
+    "Clement St & 19th Ave, San Francisco, CA": { lat: 37.7828, lng: -122.4751 },
+    "Clement St & 33rd Ave, San Francisco, CA": { lat: 37.7828, lng: -122.4928 },
+    "Geary Blvd & 19th Ave, San Francisco, CA": { lat: 37.7816, lng: -122.4751 },
+    "Geary Blvd & 25th Ave, San Francisco, CA": { lat: 37.7816, lng: -122.4839 },
+    "Balboa St & 19th Ave, San Francisco, CA": { lat: 37.7761, lng: -122.4751 },
+    "California St & 19th Ave, San Francisco, CA": { lat: 37.7844, lng: -122.4751 },
     
     // Western Addition and Fillmore
     "Western Addition, San Francisco, CA": { lat: 37.7844, lng: -122.4394 },
@@ -201,6 +229,11 @@ export default function TrafficMapDisplay({
     const validData = data.filter(point => point.status === "OK" && point.duration > 0);
     console.log(`Rendering ${validData.length} valid data points on map`);
 
+    // Calculate min and max durations for dynamic color scaling
+    const durations = validData.map(point => point.duration);
+    const minDuration = durations.length > 0 ? Math.min(...durations) : 0;
+    const maxDuration = durations.length > 0 ? Math.max(...durations) : 0;
+
     // Add new markers for each valid data point
     validData.forEach((point, index) => {
       const coords = SF_GEOCODE_CACHE[point.origin];
@@ -209,7 +242,7 @@ export default function TrafficMapDisplay({
         return;
       }
 
-      const { color, intensity } = getColorIntensity(point.duration);
+      const { color, intensity } = getColorIntensity(point.duration, minDuration, maxDuration);
       const minutes = Math.round(point.duration / 60);
 
       const marker = L.circleMarker([coords.lat, coords.lng], {
@@ -236,10 +269,23 @@ export default function TrafficMapDisplay({
             </small>
           </div>
         `)
-        .bindTooltip(point.neighborhood, {
+        .bindTooltip(`
+          <div style="font-family: sans-serif; text-align: center;">
+            <div style="font-weight: bold; color: #1F2937; margin-bottom: 4px;">
+              ${point.neighborhood}
+            </div>
+            <div style="font-size: 14px; color: ${minutes > 40 ? '#DC2626' : minutes > 20 ? '#D97706' : '#059669'}; font-weight: bold;">
+              ${minutes} minutes
+            </div>
+            <div style="font-size: 11px; color: #6B7280; margin-top: 2px; max-width: 200px; line-height: 1.2;">
+              ${point.origin.replace(', San Francisco, CA', '')}
+            </div>
+          </div>
+        `, {
           permanent: false,
           direction: 'top',
-          offset: [0, -10]
+          offset: [0, -15],
+          className: 'custom-tooltip'
         });
 
       markersRef.current.push(marker);

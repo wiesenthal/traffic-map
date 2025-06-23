@@ -76,12 +76,40 @@ const SF_ADDRESSES = [
   { address: "Outer Sunset, San Francisco, CA", name: "Outer Sunset" },
   { address: "Ocean Beach, San Francisco, CA", name: "Ocean Beach" },
   
-  // Pacific Heights and Marina
+  // Pacific Heights and Marina - Enhanced Coverage
   { address: "Pacific Heights, San Francisco, CA", name: "Pacific Heights" },
   { address: "Marina District, San Francisco, CA", name: "Marina District" },
   { address: "Cow Hollow, San Francisco, CA", name: "Cow Hollow" },
   { address: "Russian Hill, San Francisco, CA", name: "Russian Hill" },
   { address: "Nob Hill, San Francisco, CA", name: "Nob Hill" },
+  
+  // Additional North Beach points
+  { address: "Washington Square Park, San Francisco, CA", name: "Washington Square" },
+  { address: "Columbus Ave & Broadway, San Francisco, CA", name: "North Beach (Broadway)" },
+  { address: "Columbus Ave & Union St, San Francisco, CA", name: "North Beach (Union)" },
+  { address: "Lombard St & Hyde St, San Francisco, CA", name: "Russian Hill (Lombard)" },
+  { address: "Hyde St & Greenwich St, San Francisco, CA", name: "Russian Hill (Hyde)" },
+  
+  // Additional Marina District points
+  { address: "Chestnut St & Fillmore St, San Francisco, CA", name: "Marina (Chestnut)" },
+  { address: "Marina Blvd & Webster St, San Francisco, CA", name: "Marina Waterfront" },
+  { address: "Palace of Fine Arts, San Francisco, CA", name: "Palace of Fine Arts" },
+  { address: "Crissy Field, San Francisco, CA", name: "Crissy Field" },
+  
+  // Additional Pacific Heights points
+  { address: "Fillmore St & California St, San Francisco, CA", name: "Pac Heights (Fillmore)" },
+  { address: "Divisadero St & California St, San Francisco, CA", name: "Pac Heights (Divisadero)" },
+  { address: "Sacramento St & Presidio Ave, San Francisco, CA", name: "Pac Heights (Sacramento)" },
+  { address: "Jackson St & Webster St, San Francisco, CA", name: "Pac Heights (Jackson)" },
+  
+  // Additional Richmond District points
+  { address: "Clement St & 6th Ave, San Francisco, CA", name: "Inner Richmond (Clement)" },
+  { address: "Clement St & 19th Ave, San Francisco, CA", name: "Mid Richmond (Clement)" },
+  { address: "Clement St & 33rd Ave, San Francisco, CA", name: "Outer Richmond (Clement)" },
+  { address: "Geary Blvd & 19th Ave, San Francisco, CA", name: "Richmond (Geary/19th)" },
+  { address: "Geary Blvd & 25th Ave, San Francisco, CA", name: "Richmond (Geary/25th)" },
+  { address: "Balboa St & 19th Ave, San Francisco, CA", name: "Richmond (Balboa)" },
+  { address: "California St & 19th Ave, San Francisco, CA", name: "Richmond (California)" },
   
   // Western Addition and Fillmore
   { address: "Western Addition, San Francisco, CA", name: "Western Addition" },
