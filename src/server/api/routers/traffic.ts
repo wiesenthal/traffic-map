@@ -118,7 +118,6 @@ const SF_ADDRESSES = [
   { address: "Irving St & 19th Ave, San Francisco, CA", name: "Inner Sunset (Irving)" },
   
   // Southern Mission (close to East Bay)
-  { address: "Bernal Heights, San Francisco, CA", name: "Bernal Heights" },
   { address: "Dogpatch, San Francisco, CA", name: "Dogpatch" },
 ];
 
