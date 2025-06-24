@@ -21,11 +21,36 @@ interface TravelTimeData {
   status: string;
 }
 
+interface Destination {
+  id: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  weight: number;
+}
+
+type ViewMode = "individual" | "weighted" | "comparison";
+
+interface DestinationData {
+  destinationId: string;
+  destinationName: string;
+  destinationAddress: string;
+  results: TravelTimeData[];
+}
+
+interface MultiDestinationData {
+  rush: DestinationData[];
+  offpeak: DestinationData[];
+}
+
 interface TrafficMapDisplayProps {
   data: TravelTimeData[];
-  destination: { lat: number; lng: number };
+  destinations: Destination[];
+  travelData: MultiDestinationData;
   getColorIntensity: (duration: number, minDuration: number, maxDuration: number) => { color: string; intensity: number };
   selectedTime: "rush" | "offpeak";
+  viewMode: ViewMode;
 }
 
 interface GeocodeResult {
@@ -36,17 +61,74 @@ interface GeocodeResult {
 
 export default function TrafficMapDisplay({
   data,
-  destination,
+  destinations,
+  travelData,
   getColorIntensity,
   selectedTime,
+  viewMode,
 }: TrafficMapDisplayProps) {
   const mapRef = useRef<L.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<L.CircleMarker[]>([]);
-  const destinationMarkerRef = useRef<L.Marker | null>(null);
+  const destinationMarkersRef = useRef<L.Marker[]>([]);
   const [geocodedData, setGeocodedData] = useState<GeocodeResult[]>([]);
 
-  // Simple geocoding cache for SF addresses (approximate coordinates)
+  // Calculate weekly statistics for a specific origin location
+  const getLocationWeeklyStats = (origin: string) => {
+    if (travelData.rush.length === 0 || travelData.offpeak.length === 0) {
+      return { weeklyMinutes: 0, trafficDelay: 0, totalTrips: 0, rushMinutes: 0, offPeakMinutes: 0 };
+    }
+
+    let totalWeeklyMinutes = 0;
+    let totalTrafficDelay = 0;
+    let totalTrips = 0;
+    let totalRushMinutes = 0;
+    let totalOffPeakMinutes = 0;
+
+    // Calculate for rush hour
+    travelData.rush.forEach(destData => {
+      const destination = destinations.find(d => d.id === destData.destinationId);
+      if (!destination) return;
+
+      const result = destData.results.find(r => r.origin === origin && r.status === "OK");
+      if (result) {
+        const rushMinutes = result.duration / 60;
+        totalRushMinutes += rushMinutes * destination.weight;
+        totalWeeklyMinutes += rushMinutes * destination.weight;
+        totalTrips += destination.weight;
+      }
+    });
+
+    // Calculate for off-peak and traffic delay
+    travelData.offpeak.forEach(destData => {
+      const destination = destinations.find(d => d.id === destData.destinationId);
+      if (!destination) return;
+
+      const result = destData.results.find(r => r.origin === origin && r.status === "OK");
+      const rushResult = travelData.rush
+        .find(rd => rd.destinationId === destData.destinationId)?.results
+        .find(r => r.origin === origin && r.status === "OK");
+
+      if (result && rushResult) {
+        const offpeakMinutes = result.duration / 60;
+        const rushMinutes = rushResult.duration / 60;
+        
+        totalOffPeakMinutes += offpeakMinutes * destination.weight;
+        totalWeeklyMinutes += offpeakMinutes * destination.weight;
+        totalTrafficDelay += (rushMinutes - offpeakMinutes) * destination.weight;
+      }
+    });
+
+    return {
+      weeklyMinutes: Math.round(totalWeeklyMinutes),
+      trafficDelay: Math.round(Math.max(0, totalTrafficDelay)),
+      totalTrips: totalTrips,
+      rushMinutes: Math.round(totalRushMinutes),
+      offPeakMinutes: Math.round(totalOffPeakMinutes),
+    };
+  };
+
+  // Simple geocoding cache for SF addresses (optimized for East Bay commutes)
   const SF_GEOCODE_CACHE: Record<string, {lat: number, lng: number}> = {
     // Major intersections and landmarks
     "Market St & Montgomery St, San Francisco, CA": { lat: 37.7944, lng: -122.4019 },
@@ -55,74 +137,51 @@ export default function TrafficMapDisplay({
     "North Beach, San Francisco, CA": { lat: 37.8006, lng: -122.4103 },
     "Fisherman's Wharf, San Francisco, CA": { lat: 37.8084, lng: -122.4089 },
     
-    // SOMA and Mission Bay
+    // SOMA and Mission Bay (close to Bay Bridge)
     "SOMA, San Francisco, CA": { lat: 37.7749, lng: -122.4194 },
     "Mission Bay, San Francisco, CA": { lat: 37.7685, lng: -122.3901 },
     "Potrero Hill, San Francisco, CA": { lat: 37.7659, lng: -122.4077 },
     
-    // Mission District
+    // Mission District (central)
     "Mission District, San Francisco, CA": { lat: 37.7599, lng: -122.4148 },
     "16th Street Mission BART, San Francisco, CA": { lat: 37.7647, lng: -122.4194 },
     "24th Street Mission BART, San Francisco, CA": { lat: 37.7521, lng: -122.4186 },
-    "Bernal Heights, San Francisco, CA": { lat: 37.7414, lng: -122.4161 },
     
     // Castro and Noe Valley
     "Castro District, San Francisco, CA": { lat: 37.7609, lng: -122.4350 },
     "Noe Valley, San Francisco, CA": { lat: 37.7503, lng: -122.4336 },
-    "Glen Park, San Francisco, CA": { lat: 37.7339, lng: -122.4342 },
     
     // Hayes Valley and Haight
     "Hayes Valley, San Francisco, CA": { lat: 37.7760, lng: -122.4236 },
     "Haight Ashbury, San Francisco, CA": { lat: 37.7692, lng: -122.4481 },
-    "Lower Haight, San Francisco, CA": { lat: 37.7718, lng: -122.4313 },
-    "Cole Valley, San Francisco, CA": { lat: 37.7658, lng: -122.4507 },
     
-    // Richmond District
-    "Richmond District, San Francisco, CA": { lat: 37.7800, lng: -122.4647 },
+    // Richmond District (key locations)
     "Inner Richmond, San Francisco, CA": { lat: 37.7800, lng: -122.4647 },
     "Outer Richmond, San Francisco, CA": { lat: 37.7756, lng: -122.4944 },
-    "Geary Blvd & 38th Ave, San Francisco, CA": { lat: 37.7816, lng: -122.4964 },
+    "Geary Blvd & 19th Ave, San Francisco, CA": { lat: 37.7816, lng: -122.4751 },
     
-    // Sunset District
-    "Sunset District, San Francisco, CA": { lat: 37.7599, lng: -122.4661 },
+    // Sunset District (key locations)
     "Inner Sunset, San Francisco, CA": { lat: 37.7644, lng: -122.4751 },
     "Outer Sunset, San Francisco, CA": { lat: 37.7534, lng: -122.4984 },
-    "Ocean Beach, San Francisco, CA": { lat: 37.7756, lng: -122.5144 },
     
-    // Pacific Heights and Marina - Enhanced Coverage
+    // Pacific Heights and Marina
     "Pacific Heights, San Francisco, CA": { lat: 37.7956, lng: -122.4339 },
     "Marina District, San Francisco, CA": { lat: 37.8021, lng: -122.4378 },
-    "Cow Hollow, San Francisco, CA": { lat: 37.7990, lng: -122.4339 },
     "Russian Hill, San Francisco, CA": { lat: 37.8014, lng: -122.4189 },
     "Nob Hill, San Francisco, CA": { lat: 37.7918, lng: -122.4156 },
     
-    // Additional North Beach points
-    "Washington Square Park, San Francisco, CA": { lat: 37.8006, lng: -122.4103 },
+    // Additional North Beach and Marina points
     "Columbus Ave & Broadway, San Francisco, CA": { lat: 37.7983, lng: -122.4067 },
-    "Columbus Ave & Union St, San Francisco, CA": { lat: 37.8003, lng: -122.4089 },
-    "Lombard St & Hyde St, San Francisco, CA": { lat: 37.8021, lng: -122.4194 },
-    "Hyde St & Greenwich St, San Francisco, CA": { lat: 37.8008, lng: -122.4194 },
-    
-    // Additional Marina District points
     "Chestnut St & Fillmore St, San Francisco, CA": { lat: 37.8003, lng: -122.4325 },
-    "Marina Blvd & Webster St, San Francisco, CA": { lat: 37.8056, lng: -122.4342 },
     "Palace of Fine Arts, San Francisco, CA": { lat: 37.8023, lng: -122.4486 },
-    "Crissy Field, San Francisco, CA": { lat: 37.8058, lng: -122.4622 },
     
     // Additional Pacific Heights points
     "Fillmore St & California St, San Francisco, CA": { lat: 37.7889, lng: -122.4331 },
     "Divisadero St & California St, San Francisco, CA": { lat: 37.7889, lng: -122.4378 },
-    "Sacramento St & Presidio Ave, San Francisco, CA": { lat: 37.7889, lng: -122.4486 },
-    "Jackson St & Webster St, San Francisco, CA": { lat: 37.7931, lng: -122.4342 },
     
     // Additional Richmond District points
     "Clement St & 6th Ave, San Francisco, CA": { lat: 37.7828, lng: -122.4631 },
     "Clement St & 19th Ave, San Francisco, CA": { lat: 37.7828, lng: -122.4751 },
-    "Clement St & 33rd Ave, San Francisco, CA": { lat: 37.7828, lng: -122.4928 },
-    "Geary Blvd & 19th Ave, San Francisco, CA": { lat: 37.7816, lng: -122.4751 },
-    "Geary Blvd & 25th Ave, San Francisco, CA": { lat: 37.7816, lng: -122.4839 },
-    "Balboa St & 19th Ave, San Francisco, CA": { lat: 37.7761, lng: -122.4751 },
-    "California St & 19th Ave, San Francisco, CA": { lat: 37.7844, lng: -122.4751 },
     
     // Western Addition and Fillmore
     "Western Addition, San Francisco, CA": { lat: 37.7844, lng: -122.4394 },
@@ -133,22 +192,12 @@ export default function TrafficMapDisplay({
     // Presidio Area
     "Presidio, San Francisco, CA": { lat: 37.8021, lng: -122.4647 },
     "Presidio Heights, San Francisco, CA": { lat: 37.7889, lng: -122.4594 },
-    "Laurel Heights, San Francisco, CA": { lat: 37.7889, lng: -122.4581 },
-    
-    // Southern SF
-    "Dogpatch, San Francisco, CA": { lat: 37.7575, lng: -122.3886 },
-    "Bayview, San Francisco, CA": { lat: 37.7349, lng: -122.3952 },
-    "Hunters Point, San Francisco, CA": { lat: 37.7217, lng: -122.3708 },
-    "Excelsior, San Francisco, CA": { lat: 37.7241, lng: -122.4286 },
-    "Visitacion Valley, San Francisco, CA": { lat: 37.7175, lng: -122.4039 },
     
     // Central Areas
     "West Portal, San Francisco, CA": { lat: 37.7394, lng: -122.4661 },
-    "Forest Hill, San Francisco, CA": { lat: 37.7575, lng: -122.4661 },
     "Twin Peaks, San Francisco, CA": { lat: 37.7544, lng: -122.4478 },
-    "Diamond Heights, San Francisco, CA": { lat: 37.7487, lng: -122.4531 },
     
-    // BART Stations
+    // BART Stations (crucial for East Bay commutes)
     "Powell Street BART, San Francisco, CA": { lat: 37.7844, lng: -122.4078 },
     "Montgomery Street BART, San Francisco, CA": { lat: 37.7889, lng: -122.4019 },
     "Civic Center BART, San Francisco, CA": { lat: 37.7794, lng: -122.4131 },
@@ -158,11 +207,14 @@ export default function TrafficMapDisplay({
     "USF, San Francisco, CA": { lat: 37.7766, lng: -122.4491 },
     "Golden Gate Park, San Francisco, CA": { lat: 37.7694, lng: -122.4862 },
     
-    // Additional major streets
+    // Additional key streets and areas
     "Van Ness Ave & Geary St, San Francisco, CA": { lat: 37.7870, lng: -122.4208 },
     "Market St & Castro St, San Francisco, CA": { lat: 37.7626, lng: -122.4348 },
     "Irving St & 19th Ave, San Francisco, CA": { lat: 37.7644, lng: -122.4751 },
-    "Taraval St & 19th Ave, San Francisco, CA": { lat: 37.7424, lng: -122.4751 },
+    
+    // Southern Mission (close to East Bay)
+    "Bernal Heights, San Francisco, CA": { lat: 37.7414, lng: -122.4161 },
+    "Dogpatch, San Francisco, CA": { lat: 37.7575, lng: -122.3886 },
   };
 
   // Initialize map
@@ -186,35 +238,41 @@ export default function TrafficMapDisplay({
     };
   }, []);
 
-  // Add destination marker
+  // Add destination markers
   useEffect(() => {
     if (!mapRef.current) return;
 
-    // Remove existing destination marker
-    if (destinationMarkerRef.current) {
-      mapRef.current.removeLayer(destinationMarkerRef.current);
-    }
-
-    // Add destination marker
-    const destinationIcon = L.divIcon({
-      html: `<div style="background-color: #8B5CF6; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3);"></div>`,
-      className: "custom-marker",
-      iconSize: [26, 26],
-      iconAnchor: [13, 13],
+    // Remove existing destination markers
+    destinationMarkersRef.current.forEach(marker => {
+      mapRef.current!.removeLayer(marker);
     });
+    destinationMarkersRef.current = [];
 
-    const marker = L.marker([destination.lat, destination.lng], { icon: destinationIcon })
-      .addTo(mapRef.current)
-      .bindPopup(`
-        <div style="font-family: sans-serif;">
-          <strong style="color: #8B5CF6;">Destination</strong><br/>
-          2140 Mandela Pkwy<br/>
-          Oakland, CA 94607
-        </div>
-      `);
+    // Add destination markers for each destination
+    destinations.forEach((destination, index) => {
+      const colors = ["#8B5CF6", "#3B82F6", "#10B981", "#F59E0B", "#EF4444"];
+      const color = colors[index % colors.length] ?? "#8B5CF6";
+      
+      const destinationIcon = L.divIcon({
+        html: `<div style="background-color: ${color}; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">${index + 1}</div>`,
+        className: "custom-marker",
+        iconSize: [26, 26],
+        iconAnchor: [13, 13],
+      });
 
-    destinationMarkerRef.current = marker;
-  }, [destination]);
+      const marker = L.marker([destination.lat, destination.lng], { icon: destinationIcon })
+        .addTo(mapRef.current!)
+        .bindPopup(`
+          <div style="font-family: sans-serif;">
+            <strong style="color: ${color};">${destination.name}</strong><br/>
+            ${destination.address}<br/>
+            <small style="color: #6B7280;">Weekly trips: ${destination.weight}</small>
+          </div>
+        `);
+
+      destinationMarkersRef.current.push(marker);
+    });
+  }, [destinations]);
 
   // Update heatmap points
   useEffect(() => {
@@ -245,16 +303,44 @@ export default function TrafficMapDisplay({
       const { color, intensity } = getColorIntensity(point.duration, minDuration, maxDuration);
       const minutes = Math.round(point.duration / 60);
 
-      const marker = L.circleMarker([coords.lat, coords.lng], {
-        radius: 8 + intensity * 12, // Size based on travel time
-        fillColor: color,
-        color: "#ffffff",
-        weight: 2,
-        opacity: 0.8,
-        fillOpacity: 0.6,
-      })
-        .addTo(mapRef.current!)
-        .bindPopup(`
+      // Get weekly statistics for this location
+      const weeklyStats = getLocationWeeklyStats(point.origin);
+
+      // Create popup content based on view mode
+      let popupContent = "";
+      if (viewMode === "comparison") {
+        popupContent = `
+          <div style="font-family: sans-serif; min-width: 200px;">
+            <strong style="color: #1F2937; font-size: 16px;">${point.neighborhood}</strong><br/>
+            <div style="margin: 8px 0;">
+              <span style="font-size: 18px; font-weight: bold; color: ${minutes > 20 ? '#DC2626' : minutes > 10 ? '#D97706' : '#059669'};">
+                +${minutes} minutes
+              </span>
+            </div>
+            <small style="color: #6B7280;">
+              <strong>Traffic Delay:</strong> Rush hour vs Off-peak<br/>
+              <strong>Address:</strong> ${point.origin}
+            </small>
+          </div>
+        `;
+      } else if (viewMode === "weighted") {
+        popupContent = `
+          <div style="font-family: sans-serif; min-width: 200px;">
+            <strong style="color: #1F2937; font-size: 16px;">${point.neighborhood}</strong><br/>
+            <div style="margin: 8px 0;">
+              <span style="font-size: 18px; font-weight: bold; color: ${minutes > 40 ? '#DC2626' : minutes > 20 ? '#D97706' : '#059669'};">
+                ${minutes} minutes
+              </span>
+            </div>
+            <small style="color: #6B7280;">
+              <strong>Weighted Average:</strong> All destinations<br/>
+              <strong>Time:</strong> ${selectedTime === "rush" ? "5:00 PM" : "3:00 AM"}<br/>
+              <strong>Address:</strong> ${point.origin}
+            </small>
+          </div>
+        `;
+      } else {
+        popupContent = `
           <div style="font-family: sans-serif; min-width: 200px;">
             <strong style="color: #1F2937; font-size: 16px;">${point.neighborhood}</strong><br/>
             <div style="margin: 8px 0;">
@@ -268,16 +354,37 @@ export default function TrafficMapDisplay({
               <strong>Address:</strong> ${point.origin}
             </small>
           </div>
-        `)
+        `;
+      }
+
+      const marker = L.circleMarker([coords.lat, coords.lng], {
+        radius: 8 + intensity * 12, // Size based on travel time
+        fillColor: color,
+        color: "#ffffff",
+        weight: 0,
+        opacity: 0.8,
+        fillOpacity: 0.6,
+      })
+        .addTo(mapRef.current!)
+        .bindPopup(popupContent)
         .bindTooltip(`
-          <div style="font-family: sans-serif; text-align: center;">
+          <div style="font-family: sans-serif; text-align: center; min-width: 240px;">
             <div style="font-weight: bold; color: #1F2937; margin-bottom: 4px;">
               ${point.neighborhood}
             </div>
             <div style="font-size: 14px; color: ${minutes > 40 ? '#DC2626' : minutes > 20 ? '#D97706' : '#059669'}; font-weight: bold;">
-              ${minutes} minutes
+              ${viewMode === "comparison" ? `+${minutes}` : minutes} minutes
             </div>
-            <div style="font-size: 11px; color: #6B7280; margin-top: 2px; max-width: 200px; line-height: 1.2;">
+            <div style="font-size: 11px; color: #6B7280; margin-top: 6px; border-top: 1px solid #E5E7EB; padding-top: 4px;">
+              <div style="margin-bottom: 2px;"><strong>Weekly Stats:</strong></div>
+              ${weeklyStats.totalTrips > 0 ? `
+                <div>🚗 ${weeklyStats.totalTrips} trips/week</div>
+                <div>⏱️ ${Math.floor(weeklyStats.rushMinutes / 60)}h ${weeklyStats.rushMinutes % 60}m rush hour</div>
+                <div>⏱️ ${Math.floor(weeklyStats.offPeakMinutes / 60)}h ${weeklyStats.offPeakMinutes % 60}m off-peak</div>
+                ${weeklyStats.trafficDelay > 0 ? `<div>🚦 +${weeklyStats.trafficDelay}m traffic delay</div>` : ''}
+              ` : '<div>No trip data available</div>'}
+            </div>
+            <div style="font-size: 10px; color: #9CA3AF; margin-top: 4px; line-height: 1.2;">
               ${point.origin.replace(', San Francisco, CA', '')}
             </div>
           </div>
@@ -294,14 +401,14 @@ export default function TrafficMapDisplay({
     console.log(`Successfully rendered ${markersRef.current.length} markers`);
 
     // Fit map to show all points
-    if (markersRef.current.length > 0) {
-      const group = new L.FeatureGroup(markersRef.current);
-      if (destinationMarkerRef.current) {
-        group.addLayer(destinationMarkerRef.current);
+    if (markersRef.current.length > 0 || destinationMarkersRef.current.length > 0) {
+      const allMarkers = [...markersRef.current, ...destinationMarkersRef.current];
+      if (allMarkers.length > 0) {
+        const group = new L.FeatureGroup(allMarkers);
+        mapRef.current.fitBounds(group.getBounds().pad(0.1));
       }
-      mapRef.current.fitBounds(group.getBounds().pad(0.1));
     }
-  }, [data, getColorIntensity, selectedTime]);
+  }, [data, getColorIntensity, selectedTime, viewMode]);
 
   return (
     <div
