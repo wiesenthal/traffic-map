@@ -2,6 +2,10 @@
 
 This Next.js application helps you choose where to live in San Francisco by analyzing travel times from various SF locations to your regular destinations. The interactive heatmap shows how much time you'll spend driving and sitting in traffic based on your weekly travel patterns, helping you minimize commute time and time spent in traffic.
 
+<img width="1327" alt="image" src="https://github.com/user-attachments/assets/09e1bb22-68c7-4ac1-89f2-6ed9f7ad5314" />
+<img width="1316" alt="image" src="https://github.com/user-attachments/assets/e93ba003-b14e-4f30-b715-9651957b43c8" />
+
+
 ## Features
 
 - **Location Planning Tool**: Find the optimal SF neighborhood based on your regular destinations and travel frequency
