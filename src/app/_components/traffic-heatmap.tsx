@@ -301,18 +301,16 @@ export function TrafficHeatmap() {
       if (rushData.length === 0 || offpeakData.length === 0) return [];
 
       if (selectedDestination === "all") {
-        // Calculate weighted averages across all destinations
+        // Calculate simple averages across all destinations to get per-trip traffic delay
         const originMap = new Map<
           string,
           {
-            rushTime: number;
-            offpeakTime: number;
-            rushWeight: number;
-            offpeakWeight: number;
+            rushTimes: number[];
+            offpeakTimes: number[];
           }
         >();
 
-        // Calculate weighted averages for both rush and off-peak
+        // Collect all times for averaging
         [rushData, offpeakData].forEach((timeData, timeIndex) => {
           const isRush = timeIndex === 0;
 
@@ -328,51 +326,37 @@ export function TrafficHeatmap() {
               const existing = originMap.get(result.origin);
               if (existing) {
                 if (isRush) {
-                  existing.rushTime += result.duration * destination.rushTrips;
-                  existing.rushWeight += destination.rushTrips;
+                  existing.rushTimes.push(result.duration);
                 } else {
-                  existing.offpeakTime += result.duration * destination.offpeakTrips;
-                  existing.offpeakWeight += destination.offpeakTrips;
+                  existing.offpeakTimes.push(result.duration);
                 }
               } else {
                 originMap.set(result.origin, {
-                  rushTime: isRush ? result.duration * destination.rushTrips : 0,
-                  offpeakTime: isRush
-                    ? 0
-                    : result.duration * destination.offpeakTrips,
-                  rushWeight: isRush ? destination.rushTrips : 0,
-                  offpeakWeight: isRush ? 0 : destination.offpeakTrips,
+                  rushTimes: isRush ? [result.duration] : [],
+                  offpeakTimes: isRush ? [] : [result.duration],
                 });
               }
             });
           });
         });
 
-        // Calculate traffic delay (difference between rush and off-peak)
-        // Only show delay where there are actually rush hour trips
+        // Calculate traffic delay (difference between average rush and off-peak times)
         const comparisonResults: TravelTimeData[] = [];
         originMap.forEach((data, origin) => {
-          if (data.rushWeight === 0 || data.offpeakWeight === 0) return;
+          if (data.rushTimes.length === 0 || data.offpeakTimes.length === 0) return;
 
-          const avgRushTime = data.rushTime / data.rushWeight;
-          const avgOffpeakTime = data.offpeakTime / data.offpeakWeight;
+          const avgRushTime = data.rushTimes.reduce((sum, time) => sum + time, 0) / data.rushTimes.length;
+          const avgOffpeakTime = data.offpeakTimes.reduce((sum, time) => sum + time, 0) / data.offpeakTimes.length;
           
-          // Only calculate delay proportional to rush hour trips
-          const totalRushTrips = destinations
-            .filter(d => selectedDestination === "all" || d.id === selectedDestination)
-            .reduce((sum, d) => sum + d.rushTrips, 0);
-          
-          if (totalRushTrips === 0) return; // No rush hour trips at all
-          
-          const trafficDelay = avgRushTime - avgOffpeakTime;
+          const trafficDelayPerTrip = avgRushTime - avgOffpeakTime;
 
           const firstResult = rushData[0]?.results.find(
             (r) => r.origin === origin,
           );
-          if (firstResult && trafficDelay > 0) {
+          if (firstResult && trafficDelayPerTrip > 0) {
             comparisonResults.push({
               ...firstResult,
-              duration: trafficDelay,
+              duration: trafficDelayPerTrip, // This is now per-trip traffic delay
             });
           }
         });
@@ -666,7 +650,7 @@ export function TrafficHeatmap() {
             ? destinations 
             : destinations.filter(d => d.id === selectedDestination);
           
-          const avgTripMultiplier = destinationsForCalc.length > 0 
+          const totalTripMultiplier = destinationsForCalc.length > 0 
             ? destinationsForCalc.reduce((sum, dest) => {
                 if (viewMode === "comparison") {
                   return sum + dest.rushTrips; // Traffic delay only applies to rush trips
@@ -677,12 +661,12 @@ export function TrafficHeatmap() {
                 } else { // combined
                   return sum + dest.rushTrips + dest.offpeakTrips;
                 }
-              }, 0) / destinationsForCalc.length 
+              }, 0)
             : 1;
           
-          minMinutes = Math.round(minMinutes * avgTripMultiplier);
-          maxMinutes = Math.round(maxMinutes * avgTripMultiplier);
-          avgMinutes = Math.round(avgMinutes * avgTripMultiplier);
+          minMinutes = Math.round(minMinutes * totalTripMultiplier);
+          maxMinutes = Math.round(maxMinutes * totalTripMultiplier);
+          avgMinutes = Math.round(avgMinutes * totalTripMultiplier);
         }
 
         const getTimePeriodLabel = () => {

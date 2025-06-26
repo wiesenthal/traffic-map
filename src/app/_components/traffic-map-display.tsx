@@ -255,80 +255,7 @@ export default function TrafficMapDisplay({
   useEffect(() => {
     if (!mapRef.current) return;
 
-    // Calculate weekly statistics for a specific origin location
-    const getLocationWeeklyStats = (origin: string) => {
-      if (travelData.rush.length === 0 || travelData.offpeak.length === 0) {
-        return {
-          weeklyMinutes: 0,
-          trafficDelay: 0,
-          totalTrips: 0,
-          rushMinutes: 0,
-          offPeakMinutes: 0,
-        };
-      }
 
-      let totalWeeklyMinutes = 0;
-      let totalTrafficDelay = 0;
-      let totalTrips = 0;
-      let totalRushMinutes = 0;
-      let totalOffPeakMinutes = 0;
-
-      // Filter destinations based on selectedDestination
-      const destinationsToCalculate = selectedDestination === "all" 
-        ? destinations 
-        : destinations.filter(d => d.id === selectedDestination);
-
-      // Calculate for rush hour
-      travelData.rush.forEach((destData) => {
-        const destination = destinationsToCalculate.find(
-          (d) => d.id === destData.destinationId,
-        );
-        if (!destination) return;
-
-        const result = destData.results.find(
-          (r) => r.origin === origin && r.status === "OK",
-        );
-        if (result) {
-          const rushMinutes = result.duration / 60;
-          totalRushMinutes += rushMinutes * destination.rushTrips;
-          totalWeeklyMinutes += rushMinutes * destination.rushTrips;
-          totalTrips += destination.rushTrips;
-        }
-      });
-
-      // Calculate for off-peak and traffic delay
-      travelData.offpeak.forEach((destData) => {
-        const destination = destinationsToCalculate.find(
-          (d) => d.id === destData.destinationId,
-        );
-        if (!destination) return;
-
-        const result = destData.results.find(
-          (r) => r.origin === origin && r.status === "OK",
-        );
-        const rushResult = travelData.rush
-          .find((rd) => rd.destinationId === destData.destinationId)
-          ?.results.find((r) => r.origin === origin && r.status === "OK");
-
-        if (result && rushResult) {
-          const offpeakMinutes = result.duration / 60;
-          const rushMinutes = rushResult.duration / 60;
-
-          totalOffPeakMinutes += offpeakMinutes * destination.offpeakTrips;
-          totalWeeklyMinutes += offpeakMinutes * destination.offpeakTrips;
-          totalTrafficDelay +=
-            (rushMinutes - offpeakMinutes) * destination.rushTrips;
-        }
-      });
-
-      return {
-        weeklyMinutes: Math.round(totalWeeklyMinutes),
-        trafficDelay: Math.round(Math.max(0, totalTrafficDelay)),
-        totalTrips: totalTrips,
-        rushMinutes: Math.round(totalRushMinutes),
-        offPeakMinutes: Math.round(totalOffPeakMinutes),
-      };
-    };
 
     // Clear existing markers
     markersRef.current.forEach((marker) => {
@@ -361,59 +288,7 @@ export default function TrafficMapDisplay({
       );
       const minutes = Math.round(point.duration / 60);
 
-      // Get weekly statistics for this location
-      const weeklyStats = getLocationWeeklyStats(point.origin);
 
-      // Create popup content based on view mode
-      // let popupContent = "";
-      // if (viewMode === "comparison") {
-      //   popupContent = `
-      //     <div style="font-family: sans-serif; min-width: 200px;">
-      //       <strong style="color: #1F2937; font-size: 16px;">${point.neighborhood}</strong><br/>
-      //       <div style="margin: 8px 0;">
-      //         <span style="font-size: 18px; font-weight: bold; color: ${minutes > 20 ? '#DC2626' : minutes > 10 ? '#D97706' : '#059669'};">
-      //           +${minutes} minutes
-      //         </span>
-      //       </div>
-      //       <small style="color: #6B7280;">
-      //         <strong>Time sitting in traffic:</strong> Rush hour - Off-peak<br/>
-      //         <strong>Address:</strong> ${point.origin}
-      //       </small>
-      //     </div>
-      //   `;
-      // } else if (viewMode === "weighted") {
-      //   popupContent = `
-      //     <div style="font-family: sans-serif; min-width: 200px;">
-      //       <strong style="color: #1F2937; font-size: 16px;">${point.neighborhood}</strong><br/>
-      //       <div style="margin: 8px 0;">
-      //         <span style="font-size: 18px; font-weight: bold; color: ${minutes > 40 ? '#DC2626' : minutes > 20 ? '#D97706' : '#059669'};">
-      //           ${minutes} minutes
-      //         </span>
-      //       </div>
-      //       <small style="color: #6B7280;">
-      //         <strong>Weighted Average:</strong> All destinations<br/>
-      //         <strong>Time:</strong> ${selectedTime === "rush" ? "5:00 PM" : "3:00 AM"}<br/>
-      //         <strong>Address:</strong> ${point.origin}
-      //       </small>
-      //     </div>
-      //   `;
-      // } else {
-      //   popupContent = `
-      //     <div style="font-family: sans-serif; min-width: 200px;">
-      //       <strong style="color: #1F2937; font-size: 16px;">${point.neighborhood}</strong><br/>
-      //       <div style="margin: 8px 0;">
-      //         <span style="font-size: 18px; font-weight: bold; color: ${minutes > 40 ? '#DC2626' : minutes > 20 ? '#D97706' : '#059669'};">
-      //           ${minutes} minutes
-      //         </span>
-      //       </div>
-      //       <small style="color: #6B7280;">
-      //         <strong>Time:</strong> ${selectedTime === "rush" ? "5:00 PM" : "3:00 AM"}<br/>
-      //         <strong>Distance:</strong> ${(point.distance / 1000).toFixed(1)} km<br/>
-      //         <strong>Address:</strong> ${point.origin}
-      //       </small>
-      //     </div>
-      //   `;
-      // }
 
       const marker = L.circleMarker([coords.lat, coords.lng], {
         radius: 8 + intensity * 12, // Size based on travel time
@@ -424,7 +299,6 @@ export default function TrafficMapDisplay({
         fillOpacity: 0.6,
       })
         .addTo(mapRef.current!)
-        // .bindPopup(popupContent)
         .bindTooltip(
           `
           <div style="font-family: sans-serif; text-align: center; min-width: 240px;">
@@ -433,20 +307,34 @@ export default function TrafficMapDisplay({
             </div>
             <div style="font-size: 16px; color: ${minutes > 40 ? "#DC2626" : minutes > 20 ? "#D97706" : "#059669"}; font-weight: bold;">
               ${(() => {
-                if (displayMode === "weekly") {
-                  // Calculate weekly total based on trip frequency
-                  const destinationsForLocation = selectedDestination === "all" 
-                    ? destinations 
-                    : destinations.filter(d => d.id === selectedDestination);
-                  
-                  let totalWeeklyMinutes = 0;
-                  if (viewMode === "comparison") {
-                    // Traffic delay: only count rush hour trips
-                    totalWeeklyMinutes = destinationsForLocation.reduce((sum, dest) => 
+                console.log(`DEBUG - Origin: ${point.origin}`);
+                console.log(`DEBUG - Raw minutes: ${minutes}`);
+                console.log(`DEBUG - ViewMode: ${viewMode}`);
+                console.log(`DEBUG - DisplayMode: ${displayMode}`);
+                
+                if (viewMode === "comparison") {
+                  // In comparison mode, minutes is already the per-trip traffic delay
+                  if (displayMode === "weekly") {
+                    const destinationsForLocation = selectedDestination === "all" 
+                      ? destinations 
+                      : destinations.filter(d => d.id === selectedDestination);
+                    
+                    const totalWeeklyTrafficDelay = destinationsForLocation.reduce((sum, dest) => 
                       sum + (minutes * dest.rushTrips), 0);
-                    return `+${totalWeeklyMinutes} min/week`;
+                    console.log(`DEBUG - Weekly traffic delay: ${totalWeeklyTrafficDelay}`);
+                    return `+${totalWeeklyTrafficDelay} min/week`;
                   } else {
-                    // Regular time: depends on time period
+                    console.log(`DEBUG - Per-trip traffic delay: ${minutes}`);
+                    return `+${minutes} min/trip`;
+                  }
+                } else {
+                  // Regular driving time
+                  if (displayMode === "weekly") {
+                    const destinationsForLocation = selectedDestination === "all" 
+                      ? destinations 
+                      : destinations.filter(d => d.id === selectedDestination);
+                    
+                    let totalWeeklyMinutes = 0;
                     if (selectedTime === "rush") {
                       totalWeeklyMinutes = destinationsForLocation.reduce((sum, dest) => 
                         sum + (minutes * dest.rushTrips), 0);
@@ -458,24 +346,11 @@ export default function TrafficMapDisplay({
                         sum + (minutes * (dest.rushTrips + dest.offpeakTrips)), 0);
                     }
                     return `${totalWeeklyMinutes} min/week`;
+                  } else {
+                    return `${minutes} min/trip`;
                   }
-                } else {
-                  return viewMode === "comparison" ? `+${minutes} min/trip` : `${minutes} min/trip`;
                 }
               })()}
-            </div>
-            <div style="font-size: 14px; color: #6B7280; margin-top: 6px; border-top: 1px solid #E5E7EB; padding-top: 4px;">
-              <div style="margin-bottom: 2px;"><strong>Weekly Stats:</strong></div>
-              ${
-                weeklyStats.totalTrips > 0
-                  ? `
-                <div>🚗 ${weeklyStats.totalTrips} trips/week</div>
-                <div>⏱️ ${Math.floor(weeklyStats.offPeakMinutes / 60)}h ${weeklyStats.offPeakMinutes % 60}m off-peak</div>
-                <div>⏱️ ${Math.floor(weeklyStats.rushMinutes / 60)}h ${weeklyStats.rushMinutes % 60}m rush hour</div>
-                ${weeklyStats.trafficDelay > 0 ? `<div>🚦 +${weeklyStats.trafficDelay}m time sitting in traffic</div>` : ""}
-              `
-                  : "<div>No trip data available</div>"
-              }
             </div>
             <div style="font-size: 10px; color: #9CA3AF; margin-top: 4px; line-height: 1.2;">
               ${point.origin.replace(", San Francisco, CA", "")}
