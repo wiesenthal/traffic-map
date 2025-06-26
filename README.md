@@ -1,15 +1,25 @@
-# San Francisco to Oakland Traffic Heatmap
+# San Francisco Traffic Heatmap for Location Planning
 
-This Next.js application shows a traffic heatmap of San Francisco, displaying travel times from various points in SF to Oakland (specifically 2140 Mandela Pkwy, Oakland, CA 94607) across the Bay Bridge.
+This Next.js application helps you choose where to live in San Francisco by analyzing travel times from various SF locations to your regular destinations. The interactive heatmap shows how much time you'll spend driving and sitting in traffic based on your weekly travel patterns, helping you minimize commute time and time spent in traffic.
 
 ## Features
 
-- **Interactive Map**: Click on points to see detailed travel time information
-- **Two Time Periods**: Toggle between rush hour (5 PM) and off-peak (3 AM) traffic conditions
+- **Location Planning Tool**: Find the optimal SF neighborhood based on your regular destinations and travel frequency
+- **Custom Destinations**: Add any destinations you visit regularly (work, family, activities, etc.)
+- **Dual View Modes**:
+  - **Time Driving**: Total travel time including traffic
+  - **Time Sitting in Traffic**: Extra time spent due to traffic (rush hour time minus off-peak time)
+- **Trip Frequency Configuration**: Specify how many trips per week you make during rush hour vs off-peak times for each destination
+- **Multiple Time Period Views**:
+  - **Rush Hour**: Filter to only rush hour trips
+  - **Off-Peak**: Filter to only off-peak trips  
+  - **Combined**: Weighted average based on your specified trip frequencies
+- **Display Options**: View data as weekly totals or per-trip averages
+- **Interactive Map**: Click on points to see detailed travel time information for each destination
 - **Color-Coded Visualization**: 
-  - Green: Fast travel times (< 20 minutes)
-  - Yellow: Medium travel times (20-40 minutes)  
-  - Red: Slow travel times (> 40 minutes)
+  - Green: Fast travel times/low traffic impact
+  - Yellow: Medium travel times/moderate traffic impact
+  - Red: Slow travel times/high traffic impact
 - **Real-time Data**: Uses Google Maps Distance Matrix API for accurate traffic-aware travel times
 
 ## Setup
@@ -50,10 +60,16 @@ The application will be available at `http://localhost:3000`.
 
 ## How to Use
 
-1. **Load Traffic Data**: Click the "Load Traffic Data" button to fetch current traffic information
-2. **Switch Time Periods**: Use the "Rush Hour" and "Off-Peak" buttons to toggle between different traffic conditions
-3. **Explore the Map**: Click on any colored circle to see detailed travel time and distance information
-4. **View Statistics**: Check the stats panel below the map for average travel times and data point counts
+1. **Add Destinations**: Use the destination manager to add places you visit regularly (work, gym, family, etc.)
+2. **Configure Trip Frequencies**: For each destination, specify how many trips per week you make during rush hour and off-peak times
+3. **Load Traffic Data**: Click "Load Traffic Data" to fetch current traffic information
+   - **Important**: Make sure to press "Load Traffic Data" whenever you add a new destination
+4. **Choose Your View**:
+   - **Time Driving** vs **Time Sitting in Traffic**: Toggle between total travel time or just the extra time due to traffic
+   - **Time Periods**: Select Rush Hour, Off-Peak, or Combined (weighted by your trip frequencies)
+   - **Display**: Choose between weekly totals or per-trip averages
+5. **Explore the Map**: Click on any colored circle to see detailed travel time breakdown for all destinations
+6. **Find Your Ideal Location**: Use the color coding to identify SF areas that minimize your total travel time or traffic stress
 
 ## Technical Details
 
@@ -62,12 +78,16 @@ The application will be available at `http://localhost:3000`.
 - **API**: tRPC for type-safe API calls
 - **Data Source**: Google Maps Distance Matrix API
 - **Grid**: 10x10 sampling grid across San Francisco (121 data points)
+- **Destination Management**: Dynamic destination system with customizable trip frequencies
+- **Traffic Analysis**: Calculates both total travel time and traffic-only time (rush hour - off-peak)
 
 ## API Usage Notes
 
 - The application processes data in batches of 25 points to respect Google Maps API rate limits
 - Travel times are calculated for the next occurrence of the selected time (5 PM for rush hour, 3 AM for off-peak)
 - The API provides traffic-aware routing when available
+- Each destination is analyzed separately, allowing for personalized commute planning
+- Remember to reload traffic data when adding new destinations to ensure all calculations are current
 
 ## Development
 
@@ -78,4 +98,4 @@ This project was built with [create-t3-app](https://create.t3.gg/). It includes:
 - **Tailwind CSS** for styling
 - **React Query** for data fetching
 
-To add more features or modify the grid sampling, check the `/src/server/api/routers/traffic.ts` file.
+To add more features, modify the destination management system, or adjust the grid sampling, check the `/src/server/api/routers/traffic.ts` file and the destination manager component.
