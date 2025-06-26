@@ -9,25 +9,18 @@ export interface Destination {
   address: string;
   lat: number;
   lng: number;
-  weight: number;
+  rushTrips: number;
+  offpeakTrips: number;
 }
 
 interface DestinationManagerProps {
   destinations: Destination[];
   onDestinationsChange: (destinations: Destination[]) => void;
-  isRoundTrip: boolean;
-  setIsRoundTrip: (isRoundTrip: boolean) => void;
-  loadAllData: () => Promise<void>;
-  isLoading: boolean;
 }
 
 export function DestinationManager({
   destinations,
   onDestinationsChange,
-  isRoundTrip,
-  setIsRoundTrip,
-  loadAllData,
-  isLoading,
 }: DestinationManagerProps) {
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [isGeocoding, setIsGeocoding] = useState(false);
@@ -35,11 +28,52 @@ export function DestinationManager({
   const [newDestination, setNewDestination] = useState<Partial<Destination>>({
     name: "",
     address: "",
-    weight: 1,
+    rushTrips: 1,
+    offpeakTrips: 1,
   });
+  
+  // Track editing state for existing destinations
+  const [editingDestination, setEditingDestination] = useState<{
+    id: string;
+    field: string;
+    value: string;
+  } | null>(null);
 
   // Create tRPC utils for geocoding
   const utils = api.useUtils();
+
+  const startEditing = (id: string, field: string, currentValue: string) => {
+    setEditingDestination({ id, field, value: currentValue });
+  };
+
+  const updateEditingValue = (value: string) => {
+    if (editingDestination) {
+      setEditingDestination({ ...editingDestination, value });
+    }
+  };
+
+  const commitEdit = async () => {
+    if (!editingDestination) return;
+    
+    const { id, field, value } = editingDestination;
+    const destination = destinations.find(d => d.id === id);
+    
+    if (!destination) {
+      setEditingDestination(null);
+      return;
+    }
+
+    // Only call updateDestination if the value actually changed
+    if (destination[field as keyof Destination] !== value) {
+      await updateDestination(id, { [field]: value } as Partial<Destination>);
+    }
+    
+    setEditingDestination(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingDestination(null);
+  };
 
   const addDestination = async () => {
     if (!newDestination.name || !newDestination.address) return;
@@ -59,11 +93,12 @@ export function DestinationManager({
         address: geocodeResult.formatted_address, // Use the formatted address from Google
         lat: geocodeResult.lat,
         lng: geocodeResult.lng,
-        weight: newDestination.weight ?? 1,
+        rushTrips: newDestination.rushTrips ?? 1,
+        offpeakTrips: newDestination.offpeakTrips ?? 1,
       };
 
       onDestinationsChange([...destinations, destination]);
-      setNewDestination({ name: "", address: "", weight: 1 });
+      setNewDestination({ name: "", address: "", rushTrips: 1, offpeakTrips: 1 });
       setIsAddingNew(false);
     } catch (error) {
       console.error("Geocoding error:", error);
@@ -113,8 +148,8 @@ export function DestinationManager({
     onDestinationsChange(destinations.filter((dest) => dest.id !== id));
   };
 
-  const getTotalWeight = () => {
-    return destinations.reduce((sum, dest) => sum + dest.weight, 0);
+  const getTotalTrips = () => {
+    return destinations.reduce((sum, dest) => sum + dest.rushTrips + dest.offpeakTrips, 0);
   };
 
   return (
@@ -129,32 +164,16 @@ export function DestinationManager({
           </p>
           {destinations.length > 0 && (
             <p className="mt-1 text-sm text-blue-600">
-              Total weekly trips: {getTotalWeight()}
+              Total weekly trips: {getTotalTrips()}
             </p>
           )}
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setIsAddingNew(true)}
-            className="rounded-lg bg-blue-500 px-4 py-2 text-white transition-colors hover:bg-blue-600"
-          >
-            Add Destination
-          </button>
-
-          <div className="flex flex-col items-end gap-4 sm:flex-row">
-            <button
-              onClick={() => void loadAllData()}
-              disabled={isLoading || destinations.length === 0}
-              className={`rounded-lg px-6 py-3 font-medium transition-colors ${
-                isLoading || destinations.length === 0
-                  ? "cursor-not-allowed bg-gray-400 text-gray-600"
-                  : "bg-green-500 text-white hover:bg-green-600"
-              }`}
-            >
-              {isLoading ? "Loading Traffic Data..." : "Load Traffic Data"}
-            </button>
-          </div>
-        </div>
+        <button
+          onClick={() => setIsAddingNew(true)}
+          className="rounded-lg bg-blue-500 px-4 py-2 text-white transition-colors hover:bg-blue-600"
+        >
+          Add Destination
+        </button>
       </div>
 
       {/* Existing Destinations */}
@@ -165,7 +184,7 @@ export function DestinationManager({
             className="rounded-lg border border-gray-200 bg-gray-50 p-4"
           >
             <div className="flex items-start justify-between">
-              <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-4">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">
                     Name
@@ -189,12 +208,22 @@ export function DestinationManager({
                   </label>
                   <input
                     type="text"
-                    value={destination.address}
-                    onChange={(e) =>
-                      updateDestination(destination.id, {
-                        address: e.target.value,
-                      })
+                    value={
+                      editingDestination?.id === destination.id && editingDestination?.field === 'address'
+                        ? editingDestination.value
+                        : destination.address
                     }
+                    onFocus={() => startEditing(destination.id, 'address', destination.address)}
+                    onChange={(e) => updateEditingValue(e.target.value)}
+                    onBlur={() => void commitEdit()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.currentTarget.blur(); // This will trigger onBlur and commit
+                      } else if (e.key === 'Escape') {
+                        cancelEdit();
+                        e.currentTarget.blur();
+                      }
+                    }}
                     className="w-full rounded-md border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                     placeholder="Full address..."
                     disabled={isGeocoding}
@@ -209,16 +238,34 @@ export function DestinationManager({
 
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Weekly Trips
+                    Rush Hour Trips/Week
                   </label>
                   <input
                     type="number"
                     min="0"
                     max="20"
-                    value={destination.weight}
+                    value={destination.rushTrips}
                     onChange={(e) =>
                       updateDestination(destination.id, {
-                        weight: parseInt(e.target.value) || 0,
+                        rushTrips: parseInt(e.target.value) || 0,
+                      })
+                    }
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Off-Peak Trips/Week
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="20"
+                    value={destination.offpeakTrips}
+                    onChange={(e) =>
+                      updateDestination(destination.id, {
+                        offpeakTrips: parseInt(e.target.value) || 0,
                       })
                     }
                     className="w-full rounded-md border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
@@ -265,7 +312,7 @@ export function DestinationManager({
             </div>
           )}
 
-          <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-4">
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">
                 Name
@@ -303,18 +350,39 @@ export function DestinationManager({
 
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">
-                Weekly Trips
+                Rush Hour Trips/Week
               </label>
               <input
                 type="number"
                 min="0"
                 max="20"
-                value={newDestination.weight ?? 1}
+                value={newDestination.rushTrips ?? 1}
                 onChange={(e) => {
                   const value = parseInt(e.target.value);
                   setNewDestination({
                     ...newDestination,
-                    weight: isNaN(value) ? 1 : value,
+                    rushTrips: isNaN(value) ? 1 : value,
+                  });
+                }}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                disabled={isGeocoding}
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Off-Peak Trips/Week
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="20"
+                value={newDestination.offpeakTrips ?? 1}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value);
+                  setNewDestination({
+                    ...newDestination,
+                    offpeakTrips: isNaN(value) ? 1 : value,
                   });
                 }}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
@@ -331,12 +399,12 @@ export function DestinationManager({
               }
               className="rounded-lg bg-blue-500 px-4 py-2 text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400"
             >
-              {isGeocoding ? "Finding Location..." : "Add Destination"}
+              Add Destination
             </button>
             <button
               onClick={() => {
                 setIsAddingNew(false);
-                setNewDestination({ name: "", address: "", weight: 1 });
+                setNewDestination({ name: "", address: "", rushTrips: 1, offpeakTrips: 1 });
                 setGeocodingError(null);
               }}
               disabled={isGeocoding}
@@ -360,8 +428,8 @@ export function DestinationManager({
         </div>
       )}
 
-      {isGeocoding && (
-        <div className="bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
+      {/* {isGeocoding && ( */}
+        <div className={`fixed inset-0 z-50 flex items-center justify-center transition-all duration-300 ${isGeocoding ? "backdrop-blur-md visible" : "invisible"}`}>
           <div className="rounded-lg bg-white p-6 shadow-lg">
             <div className="flex items-center space-x-3">
               <div className="h-5 w-5 animate-spin rounded-full border-b-2 border-blue-500"></div>
@@ -369,18 +437,9 @@ export function DestinationManager({
             </div>
           </div>
         </div>
-      )}
+      {/* )} */}
 
-      <div className="flex w-full items-center gap-2">
-        <div className="flex-1" />
-        <input
-          type="checkbox"
-          checked={isRoundTrip}
-          onChange={() => setIsRoundTrip(!isRoundTrip)}
-          className="h-4 w-4 rounded border border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
-        />
-        <label className="text-sm font-medium text-gray-700">Round Trip</label>
-      </div>
+
     </div>
   );
 }

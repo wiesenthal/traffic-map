@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -30,10 +30,12 @@ interface Destination {
   address: string;
   lat: number;
   lng: number;
-  weight: number;
+  rushTrips: number;
+  offpeakTrips: number;
 }
 
 type ViewMode = "individual" | "weighted" | "comparison";
+type TimePeriod = "rush" | "offpeak" | "combined";
 
 interface DestinationData {
   destinationId: string;
@@ -56,10 +58,10 @@ interface TrafficMapDisplayProps {
     minDuration: number,
     maxDuration: number,
   ) => { color: string; intensity: number };
-  selectedTime: "rush" | "offpeak";
+  selectedTime: TimePeriod;
   viewMode: ViewMode;
-  isRoundTrip: boolean;
   selectedDestination: string;
+  displayMode: "weekly" | "per-trip";
 }
 
 // Simple geocoding cache for SF addresses (optimized for East Bay commutes)
@@ -178,15 +180,15 @@ export default function TrafficMapDisplay({
   getColorIntensity,
   selectedTime,
   viewMode,
-  isRoundTrip,
   selectedDestination,
+  displayMode,
 }: TrafficMapDisplayProps) {
   const mapRef = useRef<L.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<L.CircleMarker[]>([]);
   const destinationMarkersRef = useRef<L.Marker[]>([]);
 
-  const multiplier = isRoundTrip ? 2 : 1;
+
 
   // Initialize map
   useEffect(() => {
@@ -241,7 +243,7 @@ export default function TrafficMapDisplay({
           <div style="font-family: sans-serif;">
             <strong style="color: ${color};">${destination.name}</strong><br/>
             ${destination.address}<br/>
-            <small style="color: #6B7280;">Weekly trips: ${destination.weight}</small>
+            <small style="color: #6B7280;">Weekly trips: ${destination.rushTrips + destination.offpeakTrips}</small>
           </div>
         `);
 
@@ -288,9 +290,9 @@ export default function TrafficMapDisplay({
         );
         if (result) {
           const rushMinutes = result.duration / 60;
-          totalRushMinutes += rushMinutes * destination.weight;
-          totalWeeklyMinutes += rushMinutes * destination.weight;
-          totalTrips += destination.weight;
+          totalRushMinutes += rushMinutes * destination.rushTrips;
+          totalWeeklyMinutes += rushMinutes * destination.rushTrips;
+          totalTrips += destination.rushTrips;
         }
       });
 
@@ -312,10 +314,10 @@ export default function TrafficMapDisplay({
           const offpeakMinutes = result.duration / 60;
           const rushMinutes = rushResult.duration / 60;
 
-          totalOffPeakMinutes += offpeakMinutes * destination.weight;
-          totalWeeklyMinutes += offpeakMinutes * destination.weight;
+          totalOffPeakMinutes += offpeakMinutes * destination.offpeakTrips;
+          totalWeeklyMinutes += offpeakMinutes * destination.offpeakTrips;
           totalTrafficDelay +=
-            (rushMinutes - offpeakMinutes) * destination.weight;
+            (rushMinutes - offpeakMinutes) * destination.rushTrips;
         }
       });
 
@@ -430,17 +432,47 @@ export default function TrafficMapDisplay({
               ${point.neighborhood}
             </div>
             <div style="font-size: 16px; color: ${minutes > 40 ? "#DC2626" : minutes > 20 ? "#D97706" : "#059669"}; font-weight: bold;">
-              ${viewMode === "comparison" ? `+${minutes * multiplier}` : minutes * multiplier} min/trip
+              ${(() => {
+                if (displayMode === "weekly") {
+                  // Calculate weekly total based on trip frequency
+                  const destinationsForLocation = selectedDestination === "all" 
+                    ? destinations 
+                    : destinations.filter(d => d.id === selectedDestination);
+                  
+                  let totalWeeklyMinutes = 0;
+                  if (viewMode === "comparison") {
+                    // Traffic delay: only count rush hour trips
+                    totalWeeklyMinutes = destinationsForLocation.reduce((sum, dest) => 
+                      sum + (minutes * dest.rushTrips), 0);
+                    return `+${totalWeeklyMinutes} min/week`;
+                  } else {
+                    // Regular time: depends on time period
+                    if (selectedTime === "rush") {
+                      totalWeeklyMinutes = destinationsForLocation.reduce((sum, dest) => 
+                        sum + (minutes * dest.rushTrips), 0);
+                    } else if (selectedTime === "offpeak") {
+                      totalWeeklyMinutes = destinationsForLocation.reduce((sum, dest) => 
+                        sum + (minutes * dest.offpeakTrips), 0);
+                    } else { // combined
+                      totalWeeklyMinutes = destinationsForLocation.reduce((sum, dest) => 
+                        sum + (minutes * (dest.rushTrips + dest.offpeakTrips)), 0);
+                    }
+                    return `${totalWeeklyMinutes} min/week`;
+                  }
+                } else {
+                  return viewMode === "comparison" ? `+${minutes} min/trip` : `${minutes} min/trip`;
+                }
+              })()}
             </div>
             <div style="font-size: 14px; color: #6B7280; margin-top: 6px; border-top: 1px solid #E5E7EB; padding-top: 4px;">
               <div style="margin-bottom: 2px;"><strong>Weekly Stats:</strong></div>
               ${
                 weeklyStats.totalTrips > 0
                   ? `
-                <div>🚗 ${weeklyStats.totalTrips * multiplier} trips/week</div>
-                <div>⏱️ ${Math.floor((weeklyStats.offPeakMinutes * multiplier) / 60)}h ${(weeklyStats.offPeakMinutes * multiplier) % 60}m off-peak</div>
-                <div>⏱️ ${Math.floor((weeklyStats.rushMinutes * multiplier) / 60)}h ${(weeklyStats.rushMinutes * multiplier) % 60}m rush hour</div>
-                ${weeklyStats.trafficDelay > 0 ? `<div>🚦 +${weeklyStats.trafficDelay * multiplier}m time sitting in traffic</div>` : ""}
+                <div>🚗 ${weeklyStats.totalTrips} trips/week</div>
+                <div>⏱️ ${Math.floor(weeklyStats.offPeakMinutes / 60)}h ${weeklyStats.offPeakMinutes % 60}m off-peak</div>
+                <div>⏱️ ${Math.floor(weeklyStats.rushMinutes / 60)}h ${weeklyStats.rushMinutes % 60}m rush hour</div>
+                ${weeklyStats.trafficDelay > 0 ? `<div>🚦 +${weeklyStats.trafficDelay}m time sitting in traffic</div>` : ""}
               `
                   : "<div>No trip data available</div>"
               }
@@ -484,8 +516,8 @@ export default function TrafficMapDisplay({
     viewMode,
     destinations,
     travelData,
-    multiplier,
     selectedDestination,
+    displayMode,
   ]);
 
   return (

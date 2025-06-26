@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useState } from "react";
 import { api } from "~/trpc/react";
 import dynamic from "next/dynamic";
 import { DestinationManager, type Destination } from "./destination-manager";
@@ -31,14 +31,17 @@ interface MultiDestinationData {
 }
 
 type ViewMode = "individual" | "comparison";
+type TimePeriod = "rush" | "offpeak" | "combined";
+type DisplayMode = "weekly" | "per-trip";
 
 export function TrafficHeatmap() {
   const [destinations, setDestinations] = useState<Destination[]>([]);
-  const [selectedTime, setSelectedTime] = useState<"rush" | "offpeak">("rush");
+  const [selectedTime, setSelectedTime] = useState<TimePeriod>("combined");
   const [selectedDestination, setSelectedDestination] = useState<string>("all");
   const [viewMode, setViewMode] = useState<ViewMode>("individual");
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("weekly");
   const [isLoading, setIsLoading] = useState(false);
-  const [isRoundTrip, setIsRoundTrip] = useState(false);
+
   const [travelData, setTravelData] = useState<MultiDestinationData>({
     rush: [],
     offpeak: [],
@@ -91,8 +94,146 @@ export function TrafficHeatmap() {
     await fetchTravelTimes("offpeak");
   };
 
+  // Get combined data based on weighted average of rush and offpeak trips
+  const getCombinedData = (): TravelTimeData[] => {
+    const rushData = travelData.rush;
+    const offpeakData = travelData.offpeak;
+
+    if (rushData.length === 0 || offpeakData.length === 0) return [];
+
+    if (selectedDestination === "all") {
+      // Calculate weighted averages across all destinations
+      const originMap = new Map<
+        string,
+        {
+          totalTime: number;
+          totalTrips: number;
+        }
+      >();
+
+      // Calculate weighted averages for both rush and off-peak
+      [rushData, offpeakData].forEach((timeData, timeIndex) => {
+        const isRush = timeIndex === 0;
+
+        timeData.forEach((destData) => {
+          const destination = destinations.find(
+            (d) => d.id === destData.destinationId,
+          );
+          if (!destination) return;
+
+          const tripCount = isRush ? destination.rushTrips : destination.offpeakTrips;
+
+          destData.results.forEach((result) => {
+            if (result.status !== "OK") return;
+
+            const existing = originMap.get(result.origin);
+            if (existing) {
+              existing.totalTime += result.duration * tripCount;
+              existing.totalTrips += tripCount;
+            } else {
+              originMap.set(result.origin, {
+                totalTime: result.duration * tripCount,
+                totalTrips: tripCount,
+              });
+            }
+          });
+        });
+      });
+
+      // Convert back to TravelTimeData format with weighted averages
+      const combinedResults: TravelTimeData[] = [];
+      originMap.forEach((data, origin) => {
+        if (data.totalTrips === 0) return;
+        
+        const avgDuration = data.totalTime / data.totalTrips;
+        const firstResult = rushData[0]?.results.find(
+          (r) => r.origin === origin,
+        );
+        if (firstResult) {
+          combinedResults.push({
+            ...firstResult,
+            duration: avgDuration,
+          });
+        }
+      });
+
+      return combinedResults;
+    } else {
+      // Handle specific destination
+      const rushDestData = rushData.find(
+        (dest) => dest.destinationId === selectedDestination,
+      );
+      const offpeakDestData = offpeakData.find(
+        (dest) => dest.destinationId === selectedDestination,
+      );
+
+      if (!rushDestData || !offpeakDestData) return [];
+
+      const destination = destinations.find(d => d.id === selectedDestination);
+      if (!destination) return [];
+
+      const originMap = new Map<string, { totalTime: number; totalTrips: number }>();
+
+      // Add rush hour data
+      rushDestData.results.forEach((result) => {
+        if (result.status !== "OK") return;
+        
+        const existing = originMap.get(result.origin);
+        if (existing) {
+          existing.totalTime += result.duration * destination.rushTrips;
+          existing.totalTrips += destination.rushTrips;
+        } else {
+          originMap.set(result.origin, {
+            totalTime: result.duration * destination.rushTrips,
+            totalTrips: destination.rushTrips,
+          });
+        }
+      });
+
+      // Add off-peak data
+      offpeakDestData.results.forEach((result) => {
+        if (result.status !== "OK") return;
+        
+        const existing = originMap.get(result.origin);
+        if (existing) {
+          existing.totalTime += result.duration * destination.offpeakTrips;
+          existing.totalTrips += destination.offpeakTrips;
+        } else {
+          originMap.set(result.origin, {
+            totalTime: result.duration * destination.offpeakTrips,
+            totalTrips: destination.offpeakTrips,
+          });
+        }
+      });
+
+      // Convert to TravelTimeData format
+      const combinedResults: TravelTimeData[] = [];
+      originMap.forEach((data, origin) => {
+        if (data.totalTrips === 0) return;
+        
+        const avgDuration = data.totalTime / data.totalTrips;
+        const firstResult = rushDestData.results.find(
+          (r) => r.origin === origin,
+        );
+        if (firstResult) {
+          combinedResults.push({
+            ...firstResult,
+            duration: avgDuration,
+          });
+        }
+      });
+
+      return combinedResults;
+    }
+  };
+
   // Get current data based on view mode and selected destination
   const getCurrentData = (): TravelTimeData[] => {
+    // Handle combined time period
+    if (selectedTime === "combined") {
+      return getCombinedData();
+    }
+    
     const currentTimeData = travelData[selectedTime];
 
     if (viewMode === "individual") {
@@ -109,17 +250,20 @@ export function TrafficHeatmap() {
           );
           if (!destination) return;
 
+          // Use appropriate trip count based on selected time
+          const tripCount = selectedTime === "rush" ? destination.rushTrips : destination.offpeakTrips;
+
           destData.results.forEach((result) => {
             if (result.status !== "OK") return;
 
             const existing = originMap.get(result.origin);
             if (existing) {
-              existing.totalTime += result.duration * destination.weight;
-              existing.totalWeight += destination.weight;
+              existing.totalTime += result.duration * tripCount;
+              existing.totalWeight += tripCount;
             } else {
               originMap.set(result.origin, {
-                totalTime: result.duration * destination.weight,
-                totalWeight: destination.weight,
+                totalTime: result.duration * tripCount,
+                totalWeight: tripCount,
               });
             }
           });
@@ -184,20 +328,20 @@ export function TrafficHeatmap() {
               const existing = originMap.get(result.origin);
               if (existing) {
                 if (isRush) {
-                  existing.rushTime += result.duration * destination.weight;
-                  existing.rushWeight += destination.weight;
+                  existing.rushTime += result.duration * destination.rushTrips;
+                  existing.rushWeight += destination.rushTrips;
                 } else {
-                  existing.offpeakTime += result.duration * destination.weight;
-                  existing.offpeakWeight += destination.weight;
+                  existing.offpeakTime += result.duration * destination.offpeakTrips;
+                  existing.offpeakWeight += destination.offpeakTrips;
                 }
               } else {
                 originMap.set(result.origin, {
-                  rushTime: isRush ? result.duration * destination.weight : 0,
+                  rushTime: isRush ? result.duration * destination.rushTrips : 0,
                   offpeakTime: isRush
                     ? 0
-                    : result.duration * destination.weight,
-                  rushWeight: isRush ? destination.weight : 0,
-                  offpeakWeight: isRush ? 0 : destination.weight,
+                    : result.duration * destination.offpeakTrips,
+                  rushWeight: isRush ? destination.rushTrips : 0,
+                  offpeakWeight: isRush ? 0 : destination.offpeakTrips,
                 });
               }
             });
@@ -205,12 +349,21 @@ export function TrafficHeatmap() {
         });
 
         // Calculate traffic delay (difference between rush and off-peak)
+        // Only show delay where there are actually rush hour trips
         const comparisonResults: TravelTimeData[] = [];
         originMap.forEach((data, origin) => {
           if (data.rushWeight === 0 || data.offpeakWeight === 0) return;
 
           const avgRushTime = data.rushTime / data.rushWeight;
           const avgOffpeakTime = data.offpeakTime / data.offpeakWeight;
+          
+          // Only calculate delay proportional to rush hour trips
+          const totalRushTrips = destinations
+            .filter(d => selectedDestination === "all" || d.id === selectedDestination)
+            .reduce((sum, d) => sum + d.rushTrips, 0);
+          
+          if (totalRushTrips === 0) return; // No rush hour trips at all
+          
           const trafficDelay = avgRushTime - avgOffpeakTime;
 
           const firstResult = rushData[0]?.results.find(
@@ -235,6 +388,9 @@ export function TrafficHeatmap() {
         );
 
         if (!rushDestData || !offpeakDestData) return [];
+
+        const destination = destinations.find(d => d.id === selectedDestination);
+        if (!destination || destination.rushTrips === 0) return []; // No rush hour trips
 
         const comparisonResults: TravelTimeData[] = [];
 
@@ -322,10 +478,6 @@ export function TrafficHeatmap() {
       <DestinationManager
         destinations={destinations}
         onDestinationsChange={setDestinations}
-        isRoundTrip={isRoundTrip}
-        setIsRoundTrip={setIsRoundTrip}
-        loadAllData={loadAllData}
-        isLoading={isLoading}
       />
 
       {/* Controls */}
@@ -388,9 +540,48 @@ export function TrafficHeatmap() {
                   >
                     Off-Peak
                   </button>
+                  <button
+                    onClick={() => setSelectedTime("combined")}
+                    className={`rounded-lg px-4 py-2 font-medium transition-colors ${
+                      selectedTime === "combined"
+                        ? "bg-purple-500 text-white"
+                        : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                    }`}
+                  >
+                    Combined
+                  </button>
                 </div>
               </div>
             )}
+
+            {/* Display Mode Selector */}
+            <div className="flex flex-col">
+              <label className="mb-2 text-sm font-medium text-gray-700">
+                Display
+              </label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setDisplayMode("per-trip")}
+                  className={`rounded-lg px-4 py-2 font-medium transition-colors ${
+                    displayMode === "per-trip"
+                      ? "bg-indigo-500 text-white"
+                      : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                  }`}
+                >
+                  Per Trip
+                </button>
+                <button
+                  onClick={() => setDisplayMode("weekly")}
+                  className={`rounded-lg px-4 py-2 font-medium transition-colors ${
+                    displayMode === "weekly"
+                      ? "bg-indigo-500 text-white"
+                      : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                  }`}
+                >
+                  Weekly
+                </button>
+              </div>
+            </div>
 
             {/* Destination Selection (for individual and comparison modes) */}
             {(viewMode === "individual" || viewMode === "comparison") &&
@@ -422,9 +613,28 @@ export function TrafficHeatmap() {
         const validData = currentData.filter(
           (d) => d.status === "OK" && d.duration > 0,
         );
+
+                
         if (validData.length === 0) {
           return (
             <div className="rounded-lg bg-white p-4 shadow-lg">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-lg font-semibold text-gray-900 flex-1">
+                  Traffic Legend
+                </span>
+                <button
+                  onClick={() => void loadAllData()}
+                  disabled={isLoading || destinations.length === 0}
+                  className={`rounded-lg px-4 py-2 font-medium transition-colors flex-1 ${
+                    isLoading || destinations.length === 0
+                      ? "cursor-not-allowed bg-gray-400 text-gray-600"
+                      : "bg-violet-600 text-white hover:bg-violet-700 cursor-pointer"
+                  }`}
+                >
+                  {isLoading ? "Loading..." : "Load Traffic Data"}
+                </button>
+                <div className="flex-1" />
+              </div>
               <div className="flex items-center justify-center gap-4">
                 <div className="flex items-center gap-2">
                   <div className="h-4 w-4 rounded bg-green-400"></div>
@@ -444,43 +654,86 @@ export function TrafficHeatmap() {
         }
 
         const durations = validData.map((d) => d.duration);
-        const minMinutes = Math.round(Math.min(...durations) / 60);
-        const maxMinutes = Math.round(Math.max(...durations) / 60);
-        const avgMinutes = Math.round(
+        let minMinutes = Math.round(Math.min(...durations) / 60);
+        let maxMinutes = Math.round(Math.max(...durations) / 60);
+        let avgMinutes = Math.round(
           durations.reduce((sum, d) => sum + d, 0) / durations.length / 60,
         );
+
+        // Apply weekly multiplier if in weekly display mode
+        if (displayMode === "weekly") {
+          const destinationsForCalc = selectedDestination === "all" 
+            ? destinations 
+            : destinations.filter(d => d.id === selectedDestination);
+          
+          const avgTripMultiplier = destinationsForCalc.length > 0 
+            ? destinationsForCalc.reduce((sum, dest) => {
+                if (viewMode === "comparison") {
+                  return sum + dest.rushTrips; // Traffic delay only applies to rush trips
+                } else if (selectedTime === "rush") {
+                  return sum + dest.rushTrips;
+                } else if (selectedTime === "offpeak") {
+                  return sum + dest.offpeakTrips;
+                } else { // combined
+                  return sum + dest.rushTrips + dest.offpeakTrips;
+                }
+              }, 0) / destinationsForCalc.length 
+            : 1;
+          
+          minMinutes = Math.round(minMinutes * avgTripMultiplier);
+          maxMinutes = Math.round(maxMinutes * avgTripMultiplier);
+          avgMinutes = Math.round(avgMinutes * avgTripMultiplier);
+        }
+
+        const getTimePeriodLabel = () => {
+          if (selectedTime === "rush") return "Rush Hour";
+          if (selectedTime === "offpeak") return "Off-Peak";
+          return "Combined";
+        };
 
         const legendTitle =
           viewMode === "comparison"
             ? "Traffic Delay (Rush - Off-Peak)"
             : selectedDestination === "all"
               ? "Weighted Average Travel Time"
-              : `Travel Time (${selectedTime === "rush" ? "Rush Hour" : "Off-Peak"})`;
+              : `Travel Time (${getTimePeriodLabel()})`;
 
         return (
           <div className="rounded-lg bg-white p-4 shadow-lg">
-            <div className="mb-2 text-center">
-              <span className="text-lg font-semibold text-gray-900">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-lg font-semibold text-gray-900 flex-1">
                 {legendTitle}
               </span>
+              <button
+                onClick={() => void loadAllData()}
+                disabled={isLoading || destinations.length === 0}
+                className={`rounded-lg px-4 py-2 font-medium transition-colors flex-1 ${
+                  isLoading || destinations.length === 0
+                    ? "cursor-not-allowed bg-gray-400 text-gray-600"
+                    : "bg-violet-600 text-white hover:bg-violet-700 cursor-pointer"
+                }`}
+              >
+                {isLoading ? "Loading..." : "Load Traffic Data"}
+              </button>
+              <div className="flex-1" />
             </div>
             <div className="flex items-center justify-center gap-6">
               <div className="flex items-center gap-2">
                 <div className="h-4 w-4 rounded bg-green-500"></div>
                 <span className="text-sm font-medium">
-                  Fast: {minMinutes * (isRoundTrip ? 2 : 1)} min
+                  Fast: {minMinutes}{displayMode === "weekly" ? " min/week" : " min/trip"}
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="h-4 w-4 rounded bg-yellow-500"></div>
                 <span className="text-sm font-medium">
-                  Avg: {avgMinutes * (isRoundTrip ? 2 : 1)} min
+                  Avg: {avgMinutes}{displayMode === "weekly" ? " min/week" : " min/trip"}
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="h-4 w-4 rounded bg-red-500"></div>
                 <span className="text-sm font-medium">
-                  Slow: {maxMinutes * (isRoundTrip ? 2 : 1)} min
+                  Slow: {maxMinutes}{displayMode === "weekly" ? " min/week" : " min/trip"}
                 </span>
               </div>
             </div>
@@ -497,8 +750,8 @@ export function TrafficHeatmap() {
           getColorIntensity={getColorIntensity}
           selectedTime={selectedTime}
           viewMode={viewMode}
-          isRoundTrip={isRoundTrip}
           selectedDestination={selectedDestination}
+          displayMode={displayMode}
         />
       </div>
     </div>
