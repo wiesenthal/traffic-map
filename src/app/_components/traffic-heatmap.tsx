@@ -450,7 +450,7 @@ export function TrafficHeatmap() {
     <div className="mx-auto w-full max-w-7xl space-y-4 p-6">
       <div className="text-center">
         <h1 className="mb-2 text-4xl font-bold text-gray-900">
-          Multi-Destination Traffic Analysis
+          SF Traffic Map
         </h1>
         <p className="text-lg text-gray-600">
           Analyze your commute patterns with weighted travel times and traffic
